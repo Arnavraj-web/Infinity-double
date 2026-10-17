@@ -1,40 +1,75 @@
-name: Android APK Build
+name: Generate Android APK and AAB from HTML
 
-# Ye workflow tab chalega jab main branch par code push hoga ya PR aayega
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - main # Agar branch ka naam master hai toh 'master' likhein
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Repository se code checkout karne ke liye
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      # 1. Code Checkout karein
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    # 2. Java (JDK 17) setup karne ke liye
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: gradle
+      # 2. Node.js Setup (Capacitor ke liye)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
 
-    # 3. Gradle wrapper ko execute karne ki permission dene ke liye
-    - name: Grant Execute Permission for Gradlew
-      run: chmod +x gradlew
+      # 3. Java Setup karein (Yahan Gradle work karega)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
-    # 4. Debug APK build karne ki command
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug
+      # 4. Dummy web folder banana (Capacitor ko project root dikhane ke liye)
+      - name: Prepare Web Assets Folder
+        run: |
+          mkdir -p www
+          cp index.html www/
+          # Agar aapki koi CSS ya JS file bhi hai toh unhe bhi copy kar sakte hain, jaise: cp -r css/ www/ (optional)
 
-    # 5. Build hui APK ko GitHub artifacts me upload karne ke liye
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
+      # 5. Capacitor install aur initialize karna
+      - name: Install and Initialize Capacitor
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli
+          npm install @capacitor/android
+          # App ka naam 'My HTML App' aur Package ID 'com.example.htmlapp' rakha hai. Aap badal sakte hain.
+          npx cap init "My HTML App" "com.example.htmlapp" --web-dir=www
+          npx cap add android
+
+      # 6. Android project build karna (Isse Gradle files generate ho jayengi)
+      - name: Sync Web assets to Android Project
+        run: npx cap sync android
+
+      # 7. APK Build karna (Debug mode test karne ke liye)
+      - name: Build Debug APK
+        run: |
+          cd android
+          ./gradlew assembleDebug
+
+      # 8. AAB Build karna (Play Store par dalne ke liye)
+      - name: Build Production AAB
+        run: |
+          cd android
+          ./gradlew bundleRelease
+
+      # 9. Output files ko GitHub Artifacts me upload karna (Jahan se aap download kar sakein)
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      # Play Store ke liye release AAB download karne ke liye
+      - name: Upload Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-aab
+          path: android/app/build/outputs/bundle/release/app-release-unsigned.aab
